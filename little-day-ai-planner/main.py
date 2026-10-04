@@ -1,13 +1,15 @@
 import sys
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import Qt
+import qtawesome as qta
+
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
-    QFormLayout,
     QLabel,
     QPushButton,
     QFrame,
@@ -17,7 +19,8 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QTimeEdit,
     QMessageBox,
-    QScrollArea
+    QScrollArea,
+    QSpinBox,
 )
 
 from database import (
@@ -34,1655 +37,2140 @@ from database import (
     get_commitments,
     delete_commitment,
     delete_goal,
-    update_task_schedule
 )
 
 from planner import (
     decompose_goal,
-    suggest_schedule
+    suggest_schedule,
 )
 
 
-# =========================================================
-# DATABASE
-# =========================================================
+# ============================================================
+# COLORS
+# ============================================================
 
-create_database()
+BG = "#E7F2EA"
+SIDEBAR = "#D4E9E2"
+PAPER = "#FFF9EC"
+CARD = "#F0E4D3"
+CARD_BLUE = "#DCEAF3"
+LAVENDER = "#E7DDF1"
+PEACH = "#F5D7C8"
+MINT = "#D8EADF"
 
+TEXT = "#39352F"
+MUTED = "#777269"
+BORDER = "#D6CFC2"
 
-# =========================================================
-# APP
-# =========================================================
+WHITE = "#FFFFFF"
+DANGER = "#E9CACA"
 
-app = QApplication(sys.argv)
-
-app.setStyleSheet("""
-QWidget {
-    background-color: #E5F3E8;
-    color: #38382F;
-    font-family: "Trebuchet MS";
-    font-size: 14px;
-}
-
-QFrame#sidebar {
-    background-color: #C6E7E5;
-    border: 2px solid #38382F;
-    border-radius: 14px;
-}
-
-QFrame#paper {
-    background-color: #FFF9EB;
-    border: 2px solid #38382F;
-    border-radius: 14px;
-}
-
-QLabel#title {
-    font-size: 27px;
-    font-weight: bold;
-}
-
-QLabel#muted {
-    color: #777366;
-}
-
-QPushButton {
-    background-color: #FFF9EB;
-    border: 2px solid #38382F;
-    border-radius: 8px;
-    padding: 9px;
-    text-align: left;
-}
-
-QPushButton:hover {
-    background-color: #F7D9B8;
-}
-
-QPushButton#primary {
-    background-color: #D8E8D8;
-    font-weight: bold;
-}
-
-QPushButton#smart {
-    background-color: #E8D8F8;
-    font-weight: bold;
-}
-
-QPushButton#danger {
-    background-color: #F5D6D6;
-}
-
-QFrame#card {
-    background-color: #D8E8F8;
-    border: 2px solid #38382F;
-    border-radius: 10px;
-}
-
-QFrame#cardAlt {
-    background-color: #F7D9B8;
-    border: 2px solid #38382F;
-    border-radius: 10px;
-}
-
-QLineEdit,
-QComboBox,
-QDateEdit,
-QTimeEdit {
-    background-color: #FFF9EB;
-    border: 2px solid #38382F;
-    border-radius: 8px;
-    padding: 7px;
-}
-
-QScrollArea {
-    border: none;
-    background: transparent;
-}
-
-* {
-    selection-background-color: #F7D9B8;
-    selection-color: #38382F;
-}
-""")
+GREEN = "#739C82"
+PURPLE = "#8E7BAE"
+PEACH_DARK = "#C88D73"
 
 
-window = QWidget()
-window.setWindowTitle("Little Day — AI Planner")
-window.resize(1100, 720)
+# ============================================================
+# GLOBAL HELPERS
+# ============================================================
 
-main = QHBoxLayout(window)
-main.setContentsMargins(16, 16, 16, 16)
-main.setSpacing(14)
+NAV_BUTTONS = []
 
 
-# =========================================================
-# SIDEBAR
-# =========================================================
-
-sidebar = QFrame()
-sidebar.setObjectName("sidebar")
-sidebar.setFixedWidth(220)
-
-nav = QVBoxLayout(sidebar)
-nav.setContentsMargins(14, 20, 14, 14)
-nav.setSpacing(10)
-
-logo = QLabel("🌱 Little Day")
-logo.setStyleSheet(
-    "font-size: 23px; font-weight: bold;"
-)
-
-nav.addWidget(logo)
-nav.addWidget(QLabel("YOUR LITTLE WORLD"))
-
-today_button = QPushButton("☀️   Today")
-goals_button = QPushButton("🌷   My Goals")
-calendar_button = QPushButton("🗓️   Calendar")
-habits_button = QPushButton("🌿   Habits")
-smart_button = QPushButton("🧠   Plan my day")
-
-nav.addWidget(today_button)
-nav.addWidget(goals_button)
-nav.addWidget(calendar_button)
-nav.addWidget(habits_button)
-nav.addWidget(smart_button)
-
-nav.addStretch()
-
-settings_button = QPushButton("⚙️   Settings")
-nav.addWidget(settings_button)
+def icon(name, color=TEXT):
+    return qta.icon(name, color=color)
 
 
-# =========================================================
-# MAIN PAPER
-# =========================================================
-
-paper = QFrame()
-paper.setObjectName("paper")
-
-content = QVBoxLayout(paper)
-content.setContentsMargins(28, 25, 28, 25)
-content.setSpacing(12)
+def make_icon_label(icon_name, color=TEXT, size=22):
+    label = QLabel()
+    label.setPixmap(
+        icon(icon_name, color).pixmap(size, size)
+    )
+    label.setFixedSize(size, size)
+    return label
 
 
-def clear_content():
-    while content.count():
-        item = content.takeAt(0)
+def styled_button(
+    text,
+    icon_name=None,
+    object_name="secondary",
+    height=40
+):
+    button = QPushButton(text)
+    button.setObjectName(object_name)
+    button.setCursor(Qt.PointingHandCursor)
+    button.setFixedHeight(height)
 
-        widget = item.widget()
+    if icon_name:
+        button.setIcon(icon(icon_name))
+        button.setIconSize(QSize(16, 16))
 
-        if widget:
-            widget.deleteLater()
-
-
-def scroll_wrap(widget):
-    scroll = QScrollArea()
-    scroll.setWidgetResizable(True)
-    scroll.setWidget(widget)
-    return scroll
+    return button
 
 
-# =========================================================
-# TASK CARD
-# =========================================================
+def clear_layout(layout):
+    while layout.count():
+        item = layout.takeAt(0)
 
-def task_card(task, index=0):
-    (
-        task_id,
+        if item.widget():
+            item.widget().deleteLater()
+
+        elif item.layout():
+            clear_layout(item.layout())
+
+
+# ============================================================
+# MAIN WINDOW
+# ============================================================
+
+class LittleDay(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Little Day")
+        self.resize(1100, 720)
+        self.setMinimumSize(900, 620)
+
+        self.current_page = None
+        self.active_button = None
+
+        self.setup_ui()
+        self.show_today()
+
+    # --------------------------------------------------------
+    # UI SETUP
+    # --------------------------------------------------------
+
+    def setup_ui(self):
+
+        self.setStyleSheet(f"""
+            QWidget {{
+                background: {BG};
+                color: {TEXT};
+                font-family: "Avenir Next";
+                font-size: 14px;
+            }}
+
+            QFrame#sidebar {{
+                background: {SIDEBAR};
+                border: none;
+                border-right: 1px solid {BORDER};
+            }}
+
+            QFrame#paper {{
+                background: {PAPER};
+                border: 1px solid {BORDER};
+                border-radius: 22px;
+            }}
+
+            QLabel#logo {{
+                font-size: 22px;
+                font-weight: 800;
+                color: {TEXT};
+            }}
+
+            QLabel#eyebrow {{
+                color: {MUTED};
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1px;
+            }}
+
+            QLabel#pageTitle {{
+                font-size: 30px;
+                font-weight: 800;
+                color: {TEXT};
+            }}
+
+            QLabel#subtitle {{
+                color: {MUTED};
+                font-size: 14px;
+            }}
+
+            QLabel#sectionTitle {{
+                font-size: 17px;
+                font-weight: 750;
+                color: {TEXT};
+            }}
+
+            QLabel#muted {{
+                color: {MUTED};
+            }}
+
+            QPushButton {{
+                border: none;
+                border-radius: 11px;
+                padding: 8px 14px;
+                font-weight: 650;
+            }}
+
+            QPushButton#navButton {{
+                background: transparent;
+                color: {TEXT};
+                text-align: left;
+                padding-left: 14px;
+                border-radius: 12px;
+                font-size: 14px;
+            }}
+
+            QPushButton#navButton:hover {{
+                background: rgba(255,255,255,0.48);
+            }}
+
+            QPushButton#navButton[active="true"] {{
+                background: {PAPER};
+                font-weight: 750;
+            }}
+
+            QPushButton#primary {{
+                background: {TEXT};
+                color: {WHITE};
+                padding: 9px 16px;
+            }}
+
+            QPushButton#primary:hover {{
+                background: #514B42;
+            }}
+
+            QPushButton#secondary {{
+                background: {CARD};
+                color: {TEXT};
+            }}
+
+            QPushButton#secondary:hover {{
+                background: {PEACH};
+            }}
+
+            QPushButton#smart {{
+                background: {LAVENDER};
+                color: {TEXT};
+            }}
+
+            QPushButton#smart:hover {{
+                background: #DCCDEB;
+            }}
+
+            QPushButton#danger {{
+                background: {DANGER};
+                color: {TEXT};
+            }}
+
+            QPushButton#danger:hover {{
+                background: #E2BDBD;
+            }}
+
+            QPushButton#complete {{
+                background: {MINT};
+                color: {TEXT};
+                border-radius: 10px;
+            }}
+
+            QPushButton#complete:hover {{
+                background: #C6DDCF;
+            }}
+
+            QLineEdit,
+            QComboBox,
+            QDateEdit,
+            QTimeEdit,
+            QSpinBox {{
+                background: {WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 9px;
+                padding: 8px 10px;
+                min-height: 18px;
+            }}
+
+            QLineEdit:focus,
+            QComboBox:focus,
+            QDateEdit:focus,
+            QTimeEdit:focus,
+            QSpinBox:focus {{
+                border: 1px solid {GREEN};
+            }}
+
+            QScrollArea {{
+                border: none;
+                background: transparent;
+            }}
+
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+            }}
+
+            QScrollBar::handle:vertical {{
+                background: #C7C0B6;
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+        """)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ====================================================
+        # SIDEBAR
+        # ====================================================
+
+        sidebar = QFrame()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(225)
+
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(18, 24, 18, 20)
+        sidebar_layout.setSpacing(7)
+
+        # Logo
+        logo_row = QHBoxLayout()
+        logo_row.setSpacing(10)
+
+        logo_icon = make_icon_label(
+            "fa5s.sun",
+            PEACH_DARK,
+            25
+        )
+
+        logo = QLabel("Little Day")
+        logo.setObjectName("logo")
+
+        logo_row.addWidget(logo_icon)
+        logo_row.addWidget(logo)
+        logo_row.addStretch()
+
+        sidebar_layout.addLayout(logo_row)
+
+        tagline = QLabel("make room for your life")
+        tagline.setObjectName("muted")
+        tagline.setStyleSheet(
+            f"color:{MUTED}; font-size:11px; padding-left:35px;"
+        )
+
+        sidebar_layout.addWidget(tagline)
+        sidebar_layout.addSpacing(24)
+
+        # Navigation
+        self.today_btn = self.nav_button(
+            "Today",
+            "fa5s.sun"
+        )
+
+        self.goals_btn = self.nav_button(
+            "My Goals",
+            "fa5s.bullseye"
+        )
+
+        self.calendar_btn = self.nav_button(
+            "Calendar",
+            "fa5s.calendar-alt"
+        )
+
+        self.habits_btn = self.nav_button(
+            "Habits",
+            "fa5s.leaf"
+        )
+
+        self.smart_btn = self.nav_button(
+            "Plan my day",
+            "fa5s.magic"
+        )
+
+        self.settings_btn = self.nav_button(
+            "Settings",
+            "fa5s.cog"
+        )
+
+        sidebar_layout.addWidget(self.today_btn)
+        sidebar_layout.addWidget(self.goals_btn)
+        sidebar_layout.addWidget(self.calendar_btn)
+        sidebar_layout.addWidget(self.habits_btn)
+
+        sidebar_layout.addSpacing(12)
+
+        # AI section label
+        ai_label = QLabel("SMART")
+        ai_label.setObjectName("eyebrow")
+        ai_label.setContentsMargins(14, 0, 0, 4)
+
+        sidebar_layout.addWidget(ai_label)
+        sidebar_layout.addWidget(self.smart_btn)
+
+        sidebar_layout.addStretch()
+
+        sidebar_layout.addWidget(self.settings_btn)
+
+        # Small footer
+        footer = QLabel("little steps · big days")
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setStyleSheet(
+            f"color:{MUTED}; font-size:10px; padding-top:12px;"
+        )
+
+        sidebar_layout.addWidget(footer)
+
+        root.addWidget(sidebar)
+
+        # ====================================================
+        # MAIN AREA
+        # ====================================================
+
+        main_area = QWidget()
+
+        main_layout = QVBoxLayout(main_area)
+        main_layout.setContentsMargins(24, 20, 24, 20)
+        main_layout.setSpacing(0)
+
+        self.paper = QFrame()
+        self.paper.setObjectName("paper")
+
+        self.paper_layout = QVBoxLayout(self.paper)
+        self.paper_layout.setContentsMargins(28, 25, 28, 25)
+        self.paper_layout.setSpacing(18)
+
+        main_layout.addWidget(self.paper)
+
+        root.addWidget(main_area)
+
+        # Connections
+        self.today_btn.clicked.connect(self.show_today)
+        self.goals_btn.clicked.connect(self.show_goals)
+        self.calendar_btn.clicked.connect(self.show_calendar)
+        self.habits_btn.clicked.connect(self.show_habits)
+        self.smart_btn.clicked.connect(self.show_smart_plan)
+        self.settings_btn.clicked.connect(self.show_settings)
+
+    # --------------------------------------------------------
+    # NAV BUTTON
+    # --------------------------------------------------------
+
+    def nav_button(self, text, icon_name):
+
+        button = QPushButton(text)
+        button.setObjectName("navButton")
+        button.setProperty("active", False)
+
+        button.setIcon(icon(icon_name))
+        button.setIconSize(QSize(17, 17))
+        button.setFixedHeight(43)
+        button.setCursor(Qt.PointingHandCursor)
+
+        NAV_BUTTONS.append(button)
+
+        return button
+
+    def set_active(self, button):
+
+        for nav in NAV_BUTTONS:
+            nav.setProperty("active", nav is button)
+            nav.style().unpolish(nav)
+            nav.style().polish(nav)
+
+        self.active_button = button
+
+    # --------------------------------------------------------
+    # PAGE HEADER
+    # --------------------------------------------------------
+
+    def page_header(
+        self,
+        eyebrow,
         title,
-        description,
-        task_date,
-        start_time,
-        end_time,
-        priority,
-        completed,
-        duration_minutes,
-        goal_id
-    ) = task
+        subtitle,
+        icon_name=None
+    ):
 
-    card = QFrame()
+        row = QHBoxLayout()
+        row.setSpacing(14)
 
-    card.setObjectName(
-        "cardAlt" if index % 2 else "card"
-    )
+        if icon_name:
+            icon_frame = QFrame()
+            icon_frame.setFixedSize(48, 48)
+            icon_frame.setStyleSheet(
+                f"""
+                background:{MINT};
+                border-radius:14px;
+                """
+            )
 
-    row = QHBoxLayout(card)
+            icon_layout = QVBoxLayout(icon_frame)
+            icon_layout.setContentsMargins(0, 0, 0, 0)
 
-    when = start_time or "Anytime"
+            icon_label = make_icon_label(
+                icon_name,
+                GREEN,
+                21
+            )
 
-    if end_time:
-        when += f"–{end_time}"
+            icon_layout.addWidget(
+                icon_label,
+                alignment=Qt.AlignCenter
+            )
 
-    time_label = QLabel(when)
-    time_label.setFixedWidth(105)
+            row.addWidget(icon_frame)
 
-    row.addWidget(time_label)
+        text_column = QVBoxLayout()
+        text_column.setSpacing(2)
 
-    details = QVBoxLayout()
+        eyebrow_label = QLabel(eyebrow.upper())
+        eyebrow_label.setObjectName("eyebrow")
 
-    title_label = QLabel(title)
+        title_label = QLabel(title)
+        title_label.setObjectName("pageTitle")
 
-    title_label.setStyleSheet(
-        "font-weight: bold; font-size: 16px;"
-    )
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setObjectName("subtitle")
 
-    details.addWidget(title_label)
+        text_column.addWidget(eyebrow_label)
+        text_column.addWidget(title_label)
+        text_column.addWidget(subtitle_label)
 
-    if description:
-        description_label = QLabel(description)
-        description_label.setWordWrap(True)
-        details.addWidget(description_label)
+        row.addLayout(text_column)
+        row.addStretch()
 
-    duration_text = (
-        f"{duration_minutes or 60} min"
-    )
+        self.paper_layout.addLayout(row)
 
-    meta = QLabel(
-        f"{task_date}  •  "
-        f"{priority}  •  "
-        f"{duration_text}"
-    )
+    # ========================================================
+    # TODAY
+    # ========================================================
 
-    meta.setObjectName("muted")
+    def show_today(self):
 
-    details.addWidget(meta)
+        self.set_active(self.today_btn)
+        self.current_page = "today"
 
-    row.addLayout(details, 1)
+        clear_layout(self.paper_layout)
 
-    done = QPushButton("✓")
-    done.setFixedSize(38, 38)
+        today = date.today()
+        tasks = get_tasks(today.isoformat())
 
-    if completed:
+        self.page_header(
+            "YOUR DAY",
+            today.strftime("%A, %d %B"),
+            "A little structure for everything you want to get done.",
+            "fa5s.sun"
+        )
 
+        # Top action row
+        action_row = QHBoxLayout()
+
+        add_btn = styled_button(
+            "Add task",
+            "fa5s.plus",
+            "primary"
+        )
+
+        smart_btn = styled_button(
+            "Plan my day",
+            "fa5s.magic",
+            "smart"
+        )
+
+        add_btn.clicked.connect(self.add_task_popup)
+        smart_btn.clicked.connect(self.show_smart_plan)
+
+        action_row.addWidget(add_btn)
+        action_row.addWidget(smart_btn)
+        action_row.addStretch()
+
+        self.paper_layout.addLayout(action_row)
+
+        # Stats
+        total = len(tasks)
+        completed = sum(1 for task in tasks if task[7])
+
+        stats = QHBoxLayout()
+        stats.setSpacing(10)
+
+        stats.addWidget(
+            self.stat_card(
+                "TASKS",
+                str(total),
+                "fa5s.list"
+            )
+        )
+
+        stats.addWidget(
+            self.stat_card(
+                "DONE",
+                str(completed),
+                "fa5s.check-circle"
+            )
+        )
+
+        stats.addWidget(
+            self.stat_card(
+                "LEFT",
+                str(max(0, total - completed)),
+                "fa5s.clock"
+            )
+        )
+
+        self.paper_layout.addLayout(stats)
+
+        section = QLabel("Today's tasks")
+        section.setObjectName("sectionTitle")
+
+        self.paper_layout.addWidget(section)
+
+        if not tasks:
+
+            empty = self.empty_state(
+                "fa5s.sun",
+                "Nothing planned yet",
+                "Add a task or let Little Day plan something for you."
+            )
+
+            self.paper_layout.addWidget(empty)
+
+        else:
+
+            scroll = self.scroll_container()
+
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(2, 2, 2, 2)
+            layout.setSpacing(10)
+
+            for task in tasks:
+                layout.addWidget(
+                    self.task_card(task)
+                )
+
+            layout.addStretch()
+
+            scroll.setWidget(container)
+
+            self.paper_layout.addWidget(scroll, 1)
+
+    def stat_card(self, title, value, icon_name):
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{CARD};
+                border:1px solid {BORDER};
+                border-radius:14px;
+            }}
+            """
+        )
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(10)
+
+        icon_label = make_icon_label(
+            icon_name,
+            GREEN,
+            18
+        )
+
+        column = QVBoxLayout()
+        column.setSpacing(0)
+
+        title_label = QLabel(title)
         title_label.setStyleSheet(
-            "font-weight: bold; "
-            "font-size: 16px; "
-            "text-decoration: line-through; "
-            "color: #888;"
+            f"font-size:9px; font-weight:800; color:{MUTED};"
         )
 
-        done.setEnabled(False)
-
-    else:
-
-        def finish():
-            complete_task(task_id)
-            show_today()
-
-        done.clicked.connect(finish)
-
-    row.addWidget(done)
-
-    return card
-
-
-# =========================================================
-# ADD TASK
-# =========================================================
-
-def task_dialog(parent=window, initial_date=None):
-
-    dialog = QDialog(parent)
-
-    dialog.setWindowTitle("Add a task")
-    dialog.resize(430, 360)
-
-    layout = QVBoxLayout(dialog)
-
-    title = QLineEdit()
-    title.setPlaceholderText(
-        "e.g. Read Transformer paper"
-    )
-
-    layout.addWidget(QLabel("Task"))
-    layout.addWidget(title)
-
-    description = QLineEdit()
-    description.setPlaceholderText(
-        "Optional notes"
-    )
-
-    layout.addWidget(QLabel("Notes"))
-    layout.addWidget(description)
-
-    task_date = QDateEdit()
-    task_date.setCalendarPopup(True)
-
-    task_date.setDate(
-        initial_date or date.today()
-    )
-
-    layout.addWidget(QLabel("Date"))
-    layout.addWidget(task_date)
-
-    start = QTimeEdit()
-    start.setDisplayFormat("HH:mm")
-
-    layout.addWidget(QLabel("Start time"))
-    layout.addWidget(start)
-
-    end = QTimeEdit()
-    end.setDisplayFormat("HH:mm")
-
-    layout.addWidget(QLabel("End time"))
-    layout.addWidget(end)
-
-    priority = QComboBox()
-    priority.addItems([
-        "High",
-        "Medium",
-        "Low"
-    ])
-
-    layout.addWidget(QLabel("Priority"))
-    layout.addWidget(priority)
-
-    save = QPushButton("🌱 Add task")
-    save.setObjectName("primary")
-
-    layout.addWidget(save)
-
-    save.clicked.connect(dialog.accept)
-
-    if dialog.exec() and title.text().strip():
-
-        start_time = start.time().toString("HH:mm")
-        end_time = end.time().toString("HH:mm")
-
-        # Calculate duration if possible.
-        start_minutes = (
-            start.time().hour() * 60
-            + start.time().minute()
+        value_label = QLabel(value)
+        value_label.setStyleSheet(
+            f"font-size:19px; font-weight:800; color:{TEXT};"
         )
 
-        end_minutes = (
-            end.time().hour() * 60
-            + end.time().minute()
-        )
+        column.addWidget(title_label)
+        column.addWidget(value_label)
 
-        duration = end_minutes - start_minutes
+        layout.addWidget(icon_label)
+        layout.addLayout(column)
 
-        if duration <= 0:
-            duration = 60
+        return frame
 
-        return (
-            title.text().strip(),
-            description.text().strip(),
-            task_date.date().toString(
-                "yyyy-MM-dd"
-            ),
+    # ========================================================
+    # TASK CARD
+    # ========================================================
+
+    def task_card(self, task):
+
+        (
+            task_id,
+            title,
+            description,
+            task_date,
             start_time,
             end_time,
-            priority.currentText(),
-            duration
+            priority,
+            completed,
+            duration,
+            goal_id
+        ) = task
+
+        frame = QFrame()
+
+        frame.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{CARD_BLUE if not completed else "#E8E8E1"};
+                border:1px solid {BORDER};
+                border-radius:15px;
+            }}
+            """
         )
 
-    return None
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(13)
 
+        # Priority accent
+        accent_colors = {
+            "High": "#D98D8D",
+            "Medium": "#D6B36A",
+            "Low": "#82A88F"
+        }
 
-def add_task_popup():
-
-    data = task_dialog()
-
-    if data:
-
-        add_task(*data)
-
-        show_today()
-
-
-# =========================================================
-# TODAY
-# =========================================================
-
-def show_today():
-
-    clear_content()
-
-    heading = QLabel(
-        "Your little day ✨"
-    )
-
-    heading.setObjectName("title")
-
-    content.addWidget(heading)
-
-    content.addWidget(
-        QLabel(
-            f"{date.today().strftime('%A, %d %B')}  "
-            "• Small steps still count."
-        )
-    )
-
-    add = QPushButton("＋ Add task")
-    add.setObjectName("primary")
-
-    add.clicked.connect(add_task_popup)
-
-    content.addWidget(add)
-
-    tasks = get_tasks(
-        date.today().isoformat()
-    )
-
-    section = QLabel(
-        "TODAY'S ADVENTURES"
-    )
-
-    section.setStyleSheet(
-        "font-weight: bold;"
-    )
-
-    content.addWidget(section)
-
-    if not tasks:
-
-        empty = QLabel(
-            "🌱 Nothing planned yet.\n"
-            "Add a task or let the planner help."
+        accent = QFrame()
+        accent.setFixedWidth(5)
+        accent.setStyleSheet(
+            f"""
+            background:{accent_colors.get(priority, GREEN)};
+            border-radius:2px;
+            """
         )
 
-        empty.setStyleSheet(
-            "font-size: 15px; padding: 18px;"
+        layout.addWidget(accent)
+
+        content = QVBoxLayout()
+        content.setSpacing(3)
+
+        # Time
+        if start_time and end_time:
+            time_text = f"{start_time} — {end_time}"
+        elif start_time:
+            time_text = start_time
+        else:
+            time_text = "Unscheduled"
+
+        time_label = QLabel(time_text)
+        time_label.setStyleSheet(
+            f"font-size:11px; font-weight:750; color:{MUTED};"
         )
 
-        content.addWidget(empty)
+        title_label = QLabel(title)
+        title_label.setStyleSheet(
+            f"""
+            font-size:16px;
+            font-weight:800;
+            color:{TEXT};
+            """
+        )
 
-    else:
-
-        for i, task in enumerate(tasks):
-            content.addWidget(
-                task_card(task, i)
+        if completed:
+            title_label.setStyleSheet(
+                f"""
+                font-size:16px;
+                font-weight:800;
+                color:{MUTED};
+                text-decoration:line-through;
+                """
             )
 
-    content.addStretch()
+        content.addWidget(time_label)
+        content.addWidget(title_label)
 
-    footer = QLabel(
-        "🌱 Your plans can change. That's okay."
-    )
+        if description:
+            desc = QLabel(description)
+            desc.setWordWrap(True)
+            desc.setStyleSheet(
+                f"color:{MUTED}; font-size:12px;"
+            )
 
-    footer.setObjectName("muted")
+            content.addWidget(desc)
 
-    content.addWidget(footer)
+        meta = QLabel(
+            f"{priority} priority  ·  {duration} min"
+        )
 
+        meta.setStyleSheet(
+            f"color:{MUTED}; font-size:10px;"
+        )
 
-# =========================================================
-# GOALS
-# =========================================================
+        content.addWidget(meta)
 
-def goal_dialog():
+        layout.addLayout(content, 1)
 
-    dialog = QDialog(window)
+        if not completed:
 
-    dialog.setWindowTitle("Add a goal")
-    dialog.resize(420, 300)
+            complete_btn = styled_button(
+                "",
+                "fa5s.check",
+                "complete",
+                38
+            )
 
-    layout = QVBoxLayout(dialog)
+            complete_btn.setToolTip("Mark complete")
+            complete_btn.setFixedWidth(40)
 
-    title = QLineEdit()
-    title.setPlaceholderText(
-        "e.g. Learn Transformers"
-    )
+            complete_btn.clicked.connect(
+                lambda checked=False, tid=task_id:
+                self.finish_task(tid)
+            )
 
-    layout.addWidget(QLabel("Goal"))
-    layout.addWidget(title)
+            layout.addWidget(complete_btn)
 
-    description = QLineEdit()
-    description.setPlaceholderText(
-        "What does success look like?"
-    )
+        return frame
 
-    layout.addWidget(QLabel("Description"))
-    layout.addWidget(description)
+    def finish_task(self, task_id):
 
-    priority = QComboBox()
-    priority.addItems([
-        "High",
-        "Medium",
-        "Low"
-    ])
+        complete_task(task_id)
+        self.show_today()
 
-    layout.addWidget(QLabel("Priority"))
-    layout.addWidget(priority)
+    # ========================================================
+    # TASK DIALOG
+    # ========================================================
 
-    deadline = QDateEdit()
-    deadline.setCalendarPopup(True)
+    def task_dialog(self):
 
-    deadline.setDate(
-        date.today() + timedelta(days=30)
-    )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add task")
+        dialog.setMinimumWidth(430)
 
-    layout.addWidget(QLabel("Deadline"))
-    layout.addWidget(deadline)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
 
-    save = QPushButton("🌷 Add goal")
-    save.setObjectName("primary")
+        title = QLabel("New task")
+        title.setStyleSheet(
+            f"font-size:22px; font-weight:800; color:{TEXT};"
+        )
 
-    layout.addWidget(save)
+        layout.addWidget(title)
 
-    save.clicked.connect(dialog.accept)
+        title_input = QLineEdit()
+        title_input.setPlaceholderText("What do you want to do?")
 
-    if dialog.exec() and title.text().strip():
+        description_input = QLineEdit()
+        description_input.setPlaceholderText(
+            "Optional description"
+        )
+
+        date_input = QDateEdit()
+        date_input.setCalendarPopup(True)
+        date_input.setDate(
+            datetime.today()
+        )
+
+        start_input = QTimeEdit()
+        start_input.setDisplayFormat("HH:mm")
+
+        end_input = QTimeEdit()
+        end_input.setDisplayFormat("HH:mm")
+
+        priority_input = QComboBox()
+        priority_input.addItems([
+            "High",
+            "Medium",
+            "Low"
+        ])
+        priority_input.setCurrentText("Medium")
+
+        duration_input = QSpinBox()
+        duration_input.setRange(15, 480)
+        duration_input.setSingleStep(15)
+        duration_input.setValue(60)
+        duration_input.setSuffix(" min")
+
+        fields = [
+            ("Task", title_input),
+            ("Description", description_input),
+            ("Date", date_input),
+            ("Start", start_input),
+            ("End", end_input),
+            ("Priority", priority_input),
+            ("Duration", duration_input)
+        ]
+
+        for label_text, widget in fields:
+
+            label = QLabel(label_text)
+            label.setStyleSheet(
+                f"font-size:11px; font-weight:750; color:{MUTED};"
+            )
+
+            layout.addWidget(label)
+            layout.addWidget(widget)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = styled_button(
+            "Cancel",
+            "fa5s.times",
+            "secondary"
+        )
+
+        save = styled_button(
+            "Add task",
+            "fa5s.plus",
+            "primary"
+        )
+
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+
+        layout.addSpacing(8)
+        layout.addLayout(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return None
 
         return (
+            title_input.text().strip(),
+            description_input.text().strip(),
+            date_input.date().toString("yyyy-MM-dd"),
+            start_input.time().toString("HH:mm"),
+            end_input.time().toString("HH:mm"),
+            priority_input.currentText(),
+            duration_input.value()
+        )
+
+    def add_task_popup(self):
+
+        result = self.task_dialog()
+
+        if not result:
+            return
+
+        (
+            title,
+            description,
+            task_date,
+            start_time,
+            end_time,
+            priority,
+            duration
+        ) = result
+
+        if not title:
+            QMessageBox.warning(
+                self,
+                "Missing title",
+                "Please give your task a title."
+            )
+            return
+
+        add_task(
+            title=title,
+            description=description,
+            task_date=task_date,
+            start_time=start_time,
+            end_time=end_time,
+            priority=priority,
+            duration_minutes=duration
+        )
+
+        self.show_today()
+
+    # ========================================================
+    # GOALS
+    # ========================================================
+
+    def show_goals(self):
+
+        self.set_active(self.goals_btn)
+        self.current_page = "goals"
+
+        clear_layout(self.paper_layout)
+
+        self.page_header(
+            "DIRECTION",
+            "My Goals",
+            "Turn the things you care about into small, doable steps.",
+            "fa5s.bullseye"
+        )
+
+        add_btn = styled_button(
+            "Add goal",
+            "fa5s.plus",
+            "primary"
+        )
+
+        add_btn.clicked.connect(
+            self.add_goal_popup
+        )
+
+        row = QHBoxLayout()
+        row.addWidget(add_btn)
+        row.addStretch()
+
+        self.paper_layout.addLayout(row)
+
+        goals = get_goals()
+
+        if not goals:
+
+            self.paper_layout.addWidget(
+                self.empty_state(
+                    "fa5s.bullseye",
+                    "No goals yet",
+                    "Add something you're working toward."
+                )
+            )
+
+            return
+
+        scroll = self.scroll_container()
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(12)
+
+        for goal in goals:
+            layout.addWidget(
+                self.goal_card(goal)
+            )
+
+        layout.addStretch()
+
+        scroll.setWidget(container)
+
+        self.paper_layout.addWidget(scroll, 1)
+
+    def goal_card(self, goal):
+
+        (
+            goal_id,
+            title,
+            description,
+            priority,
+            deadline
+        ) = goal
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{LAVENDER};
+                border:1px solid {BORDER};
+                border-radius:16px;
+            }}
+            """
+        )
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(14)
+
+        icon_label = make_icon_label(
+            "fa5s.bullseye",
+            PURPLE,
+            22
+        )
+
+        layout.addWidget(icon_label)
+
+        content = QVBoxLayout()
+        content.setSpacing(3)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet(
+            f"font-size:17px; font-weight:800; color:{TEXT};"
+        )
+
+        content.addWidget(title_label)
+
+        if description:
+            desc = QLabel(description)
+            desc.setWordWrap(True)
+            desc.setStyleSheet(
+                f"color:{MUTED}; font-size:12px;"
+            )
+
+            content.addWidget(desc)
+
+        deadline_text = (
+            f"Deadline: {deadline}"
+            if deadline
+            else "No deadline"
+        )
+
+        meta = QLabel(
+            f"{priority} priority  ·  {deadline_text}"
+        )
+
+        meta.setStyleSheet(
+            f"color:{MUTED}; font-size:11px;"
+        )
+
+        content.addWidget(meta)
+
+        layout.addLayout(content, 1)
+
+        generate = styled_button(
+            "Break down",
+            "fa5s.magic",
+            "secondary"
+        )
+
+        generate.clicked.connect(
+            lambda checked=False, gid=goal_id:
+            self.generate_goal_tasks(gid)
+        )
+
+        delete = styled_button(
+            "",
+            "fa5s.trash-alt",
+            "danger"
+        )
+
+        delete.setFixedWidth(40)
+        delete.setToolTip("Delete goal")
+
+        delete.clicked.connect(
+            lambda checked=False, gid=goal_id:
+            self.delete_goal_popup(gid)
+        )
+
+        layout.addWidget(generate)
+        layout.addWidget(delete)
+
+        return frame
+
+    def add_goal_popup(self):
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add goal")
+        dialog.setMinimumWidth(430)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
+
+        heading = QLabel("New goal")
+        heading.setStyleSheet(
+            f"font-size:22px; font-weight:800;"
+        )
+
+        layout.addWidget(heading)
+
+        title = QLineEdit()
+        title.setPlaceholderText(
+            "e.g. Learn transformers"
+        )
+
+        description = QLineEdit()
+        description.setPlaceholderText(
+            "What does success look like?"
+        )
+
+        priority = QComboBox()
+        priority.addItems([
+            "High",
+            "Medium",
+            "Low"
+        ])
+
+        deadline = QDateEdit()
+        deadline.setCalendarPopup(True)
+        deadline.setDate(
+            date.today() + timedelta(days=14)
+        )
+
+        for label_text, widget in [
+            ("Goal", title),
+            ("Description", description),
+            ("Priority", priority),
+            ("Deadline", deadline)
+        ]:
+
+            label = QLabel(label_text)
+            label.setStyleSheet(
+                f"font-size:11px; font-weight:750; color:{MUTED};"
+            )
+
+            layout.addWidget(label)
+            layout.addWidget(widget)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = styled_button(
+            "Cancel",
+            "fa5s.times",
+            "secondary"
+        )
+
+        save = styled_button(
+            "Add goal",
+            "fa5s.plus",
+            "primary"
+        )
+
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+
+        layout.addLayout(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        if not title.text().strip():
+            QMessageBox.warning(
+                self,
+                "Missing goal",
+                "Please give your goal a title."
+            )
+            return
+
+        add_goal(
             title.text().strip(),
             description.text().strip(),
             priority.currentText(),
-            deadline.date().toString(
-                "yyyy-MM-dd"
-            )
+            deadline.date().toString("yyyy-MM-dd")
         )
 
-    return None
+        self.show_goals()
 
+    def generate_goal_tasks(self, goal_id):
 
-def add_goal_popup():
+        goals = get_goals()
 
-    data = goal_dialog()
+        goal = next(
+            (g for g in goals if g[0] == goal_id),
+            None
+        )
 
-    if data:
+        if not goal:
+            return
 
-        add_goal(*data)
-
-        show_goals()
-
-
-# =========================================================
-# GOAL → AI TASKS → SCHEDULE
-# =========================================================
-
-def generate_goal_tasks(
-    goal_id,
-    title,
-    deadline
-):
-
-    try:
-
-        # ---------------------------------------------
-        # 1. Ask Gemini what needs to be done.
-        # ---------------------------------------------
-
-        tasks = decompose_goal(title)
-
-        # ---------------------------------------------
-        # 2. Parse deadline.
-        # ---------------------------------------------
+        (
+            _,
+            title,
+            description,
+            priority,
+            deadline
+        ) = goal
 
         try:
 
+            QApplication.setOverrideCursor(
+                Qt.WaitCursor
+            )
+
+            tasks = decompose_goal(
+                f"{title}. {description}"
+            )
+
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "AI planner",
+                str(error)
+            )
+
+            return
+
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        start_date = date.today()
+
+        try:
             deadline_date = datetime.strptime(
                 deadline,
                 "%Y-%m-%d"
             ).date()
 
         except ValueError:
-
-            deadline_date = (
-                date.today()
-                + timedelta(days=14)
-            )
-
-        # ---------------------------------------------
-        # 3. Build busy schedule.
-        # ---------------------------------------------
-
-        busy_by_date = {}
-
-        current_date = date.today()
-
-        while current_date <= deadline_date:
-
-            day_string = current_date.isoformat()
-
-            busy_by_date[day_string] = []
-
-            # Existing commitments.
-            commitments = get_commitments(
-                day_string
-            )
-
-            for commitment in commitments:
-
-                (
-                    _cid,
-                    _title,
-                    _date,
-                    start,
-                    end
-                ) = commitment
-
-                if start and end:
-
-                    busy_by_date[
-                        day_string
-                    ].append(
-                        (start, end)
-                    )
-
-            # Existing scheduled tasks.
-            existing_tasks = get_tasks(
-                day_string
-            )
-
-            for existing in existing_tasks:
-
-                (
-                    _tid,
-                    _title,
-                    _description,
-                    _task_date,
-                    start,
-                    end,
-                    _priority,
-                    _completed,
-                    _duration,
-                    _goal_id
-                ) = existing
-
-                if start and end:
-
-                    busy_by_date[
-                        day_string
-                    ].append(
-                        (start, end)
-                    )
-
-            current_date += timedelta(days=1)
-
-        # ---------------------------------------------
-        # 4. Let deterministic Python scheduler
-        #    decide when everything goes.
-        # ---------------------------------------------
+            deadline_date = start_date + timedelta(days=14)
 
         scheduled = suggest_schedule(
             tasks,
-            date.today(),
-            deadline_date,
-            busy_by_date
+            start_date,
+            deadline_date
         )
 
-        # ---------------------------------------------
-        # 5. Save scheduled tasks.
-        # ---------------------------------------------
-
-        for item in scheduled:
+        for task in scheduled:
 
             add_task(
-                item["title"],
-                f"Generated from goal: {title}",
-                item["date"],
-                item["start"],
-                item["end"],
-                item["priority"],
-                item["duration_minutes"],
-                goal_id
+                title=task["title"],
+                description=f"Generated from goal: {title}",
+                task_date=task["date"],
+                start_time=task["start"],
+                end_time=task["end"],
+                priority=task.get(
+                    "priority",
+                    "Medium"
+                ),
+                duration_minutes=task.get(
+                    "duration_minutes",
+                    60
+                ),
+                goal_id=goal_id
             )
 
-        if len(scheduled) < len(tasks):
-
-            QMessageBox.warning(
-                window,
-                "Not enough free time",
-                (
-                    f"I created {len(scheduled)} "
-                    f"of {len(tasks)} tasks.\n\n"
-                    "There wasn't enough available "
-                    "time before the deadline for "
-                    "everything."
-                )
-            )
-
-        else:
-
-            QMessageBox.information(
-                window,
-                "Goal broken down ✨",
-                (
-                    f"I created {len(scheduled)} "
-                    f"tasks for:\n{title}"
-                )
-            )
-
-        show_today()
-
-    except Exception as error:
-
-        QMessageBox.critical(
-            window,
-            "Planner error",
-            str(error)
+        QMessageBox.information(
+            self,
+            "Plan created",
+            f"Little Day created {len(scheduled)} tasks for this goal."
         )
 
+        self.show_goals()
 
-def goal_card(goal, index=0):
-
-    (
-        goal_id,
-        title,
-        description,
-        priority,
-        deadline
-    ) = goal
-
-    card = QFrame()
-
-    card.setObjectName(
-        "cardAlt" if index % 2 else "card"
-    )
-
-    layout = QVBoxLayout(card)
-
-    title_label = QLabel(
-        "🎯  " + title
-    )
-
-    title_label.setStyleSheet(
-        "font-weight: bold; font-size: 17px;"
-    )
-
-    layout.addWidget(title_label)
-
-    if description:
-        layout.addWidget(
-            QLabel(description)
-        )
-
-    meta = QLabel(
-        f"Priority: {priority}   •   "
-        f"Deadline: {deadline or 'None'}"
-    )
-
-    meta.setObjectName("muted")
-
-    layout.addWidget(meta)
-
-    actions = QHBoxLayout()
-
-    break_button = QPushButton(
-        "✨ Break into tasks"
-    )
-
-    break_button.setObjectName(
-        "smart"
-    )
-
-    break_button.clicked.connect(
-        lambda checked=False,
-               gid=goal_id,
-               t=title,
-               d=deadline:
-        generate_goal_tasks(
-            gid,
-            t,
-            d
-        )
-    )
-
-    actions.addWidget(
-        break_button
-    )
-
-    delete_button = QPushButton(
-        "Delete"
-    )
-
-    delete_button.setObjectName(
-        "danger"
-    )
-
-    def remove_goal():
+    def delete_goal_popup(self, goal_id):
 
         answer = QMessageBox.question(
-            window,
-            "Delete goal?",
-            (
-                f"Delete '{title}'?\n\n"
-                "Any tasks generated from "
-                "this goal will also be deleted."
-            ),
-            QMessageBox.Yes |
-            QMessageBox.No
+            self,
+            "Delete goal",
+            "Delete this goal and its generated tasks?",
+            QMessageBox.Yes | QMessageBox.No
         )
 
         if answer == QMessageBox.Yes:
-
             delete_goal(goal_id)
+            self.show_goals()
 
-            show_goals()
+    # ========================================================
+    # CALENDAR
+    # ========================================================
 
-    delete_button.clicked.connect(
-        remove_goal
-    )
+    def show_calendar(self):
 
-    actions.addWidget(
-        delete_button
-    )
+        self.set_active(self.calendar_btn)
+        self.current_page = "calendar"
 
-    layout.addLayout(actions)
+        clear_layout(self.paper_layout)
 
-    return card
-
-
-def show_goals():
-
-    clear_content()
-
-    heading = QLabel(
-        "Things I'm working toward 🌷"
-    )
-
-    heading.setObjectName("title")
-
-    content.addWidget(heading)
-
-    content.addWidget(
-        QLabel(
-            "Turn big goals into small actions. "
-            "The planner can help with that."
+        self.page_header(
+            "OVERVIEW",
+            "Calendar",
+            "A simple look at the week ahead.",
+            "fa5s.calendar-alt"
         )
-    )
 
-    add = QPushButton(
-        "＋ Add goal"
-    )
+        start = date.today()
 
-    add.setObjectName("primary")
+        scroll = self.scroll_container()
 
-    add.clicked.connect(
-        add_goal_popup
-    )
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(12)
 
-    content.addWidget(add)
+        for offset in range(7):
 
-    goals = get_goals()
+            current = start + timedelta(days=offset)
 
-    if not goals:
-
-        content.addWidget(
-            QLabel(
-                "🌱 No goals yet.\n"
-                "Start with something you "
-                "genuinely want to achieve."
+            tasks = get_tasks(
+                current.isoformat()
             )
-        )
 
-    else:
+            day_card = QFrame()
+            day_card.setStyleSheet(
+                f"""
+                QFrame {{
+                    background:{CARD};
+                    border:1px solid {BORDER};
+                    border-radius:15px;
+                }}
+                """
+            )
 
-        for i, goal in enumerate(goals):
+            day_layout = QVBoxLayout(day_card)
+            day_layout.setContentsMargins(
+                16, 13, 16, 13
+            )
+            day_layout.setSpacing(5)
 
-            content.addWidget(
-                goal_card(
-                    goal,
-                    i
+            heading = QLabel(
+                current.strftime("%A · %d %B")
+            )
+
+            heading.setStyleSheet(
+                f"font-size:15px; font-weight:800;"
+            )
+
+            day_layout.addWidget(heading)
+
+            if not tasks:
+
+                empty = QLabel("Nothing scheduled")
+                empty.setStyleSheet(
+                    f"color:{MUTED}; font-size:12px;"
                 )
-            )
 
-    content.addStretch()
+                day_layout.addWidget(empty)
 
+            else:
 
-# =========================================================
-# CALENDAR
-# =========================================================
+                for task in tasks:
 
-def show_calendar():
+                    (
+                        task_id,
+                        title,
+                        description,
+                        task_date,
+                        start_time,
+                        end_time,
+                        priority,
+                        completed,
+                        duration,
+                        goal_id
+                    ) = task
 
-    clear_content()
-
-    heading = QLabel(
-        "Your calendar 🗓️"
-    )
-
-    heading.setObjectName("title")
-
-    content.addWidget(heading)
-
-    add = QPushButton(
-        "＋ Add scheduled task"
-    )
-
-    add.setObjectName("primary")
-
-    add.clicked.connect(
-        add_task_popup
-    )
-
-    content.addWidget(add)
-
-    today = date.today()
-
-    for offset in range(7):
-
-        day = today + timedelta(
-            days=offset
-        )
-
-        tasks = get_tasks(
-            day.isoformat()
-        )
-
-        day_label = QLabel(
-            f"{day.strftime('%A')}  •  "
-            f"{day.strftime('%d %b')}"
-        )
-
-        day_label.setStyleSheet(
-            "font-weight: bold; font-size: 16px;"
-        )
-
-        content.addWidget(
-            day_label
-        )
-
-        if tasks:
-
-            for i, task in enumerate(tasks):
-
-                content.addWidget(
-                    task_card(
-                        task,
-                        i
+                    time_text = (
+                        start_time
+                        if start_time
+                        else "—"
                     )
+
+                    task_label = QLabel(
+                        f"{time_text}   {title}"
+                    )
+
+                    task_label.setStyleSheet(
+                        f"""
+                        color:{MUTED if completed else TEXT};
+                        font-size:12px;
+                        """
+                    )
+
+                    day_layout.addWidget(task_label)
+
+            layout.addWidget(day_card)
+
+        layout.addStretch()
+
+        scroll.setWidget(container)
+
+        self.paper_layout.addWidget(scroll, 1)
+
+    # ========================================================
+    # HABITS
+    # ========================================================
+
+    def show_habits(self):
+
+        self.set_active(self.habits_btn)
+        self.current_page = "habits"
+
+        clear_layout(self.paper_layout)
+
+        self.page_header(
+            "ROUTINES",
+            "Habits",
+            "Small things, repeated often.",
+            "fa5s.leaf"
+        )
+
+        add_btn = styled_button(
+            "Add habit",
+            "fa5s.plus",
+            "primary"
+        )
+
+        add_btn.clicked.connect(
+            self.add_habit_popup
+        )
+
+        row = QHBoxLayout()
+        row.addWidget(add_btn)
+        row.addStretch()
+
+        self.paper_layout.addLayout(row)
+
+        habits = get_habits()
+
+        if not habits:
+
+            self.paper_layout.addWidget(
+                self.empty_state(
+                    "fa5s.leaf",
+                    "No habits yet",
+                    "Start with one small thing you'd like to repeat."
                 )
-
-        else:
-
-            empty = QLabel(
-                "  Nothing planned"
             )
 
-            empty.setObjectName(
-                "muted"
+            return
+
+        scroll = self.scroll_container()
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(10)
+
+        today = date.today().isoformat()
+
+        for habit in habits:
+
+            (
+                habit_id,
+                title,
+                frequency,
+                last_completed
+            ) = habit
+
+            card = QFrame()
+            card.setStyleSheet(
+                f"""
+                QFrame {{
+                    background:{MINT};
+                    border:1px solid {BORDER};
+                    border-radius:15px;
+                }}
+                """
             )
 
-            content.addWidget(
-                empty
+            row = QHBoxLayout(card)
+            row.setContentsMargins(15, 12, 15, 12)
+
+            icon_label = make_icon_label(
+                "fa5s.leaf",
+                GREEN,
+                20
             )
 
-    content.addStretch()
+            row.addWidget(icon_label)
 
+            content = QVBoxLayout()
+            content.setSpacing(2)
 
-# =========================================================
-# HABITS
-# =========================================================
+            title_label = QLabel(title)
+            title_label.setStyleSheet(
+                f"font-size:15px; font-weight:800;"
+            )
 
-def habit_dialog():
+            frequency_label = QLabel(
+                f"{frequency} · "
+                + (
+                    "completed today"
+                    if last_completed == today
+                    else "not completed today"
+                )
+            )
 
-    dialog = QDialog(window)
+            frequency_label.setStyleSheet(
+                f"font-size:11px; color:{MUTED};"
+            )
 
-    dialog.setWindowTitle(
-        "Add a habit"
-    )
+            content.addWidget(title_label)
+            content.addWidget(frequency_label)
 
-    dialog.resize(380, 220)
+            row.addLayout(content, 1)
 
-    layout = QVBoxLayout(dialog)
+            done = last_completed == today
 
-    title = QLineEdit()
+            button = styled_button(
+                "Done" if done else "Complete",
+                "fa5s.check",
+                "secondary"
+            )
 
-    title.setPlaceholderText(
-        "e.g. Read for 30 minutes"
-    )
+            button.clicked.connect(
+                lambda checked=False, hid=habit_id:
+                self.complete_habit(hid)
+            )
 
-    layout.addWidget(
-        QLabel("Habit")
-    )
+            row.addWidget(button)
 
-    layout.addWidget(title)
+            layout.addWidget(card)
 
-    frequency = QComboBox()
+        layout.addStretch()
 
-    frequency.addItems([
-        "Daily",
-        "Weekdays",
-        "3x per week"
-    ])
+        scroll.setWidget(container)
 
-    layout.addWidget(
-        QLabel("Frequency")
-    )
+        self.paper_layout.addWidget(scroll, 1)
 
-    layout.addWidget(
-        frequency
-    )
+    def add_habit_popup(self):
 
-    save = QPushButton(
-        "🌿 Add habit"
-    )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add habit")
+        dialog.setMinimumWidth(400)
 
-    save.setObjectName(
-        "primary"
-    )
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
 
-    layout.addWidget(save)
+        heading = QLabel("New habit")
+        heading.setStyleSheet(
+            f"font-size:22px; font-weight:800;"
+        )
 
-    save.clicked.connect(
-        dialog.accept
-    )
+        layout.addWidget(heading)
 
-    if dialog.exec() and title.text().strip():
+        title = QLineEdit()
+        title.setPlaceholderText(
+            "e.g. Read for 20 minutes"
+        )
 
-        return (
+        frequency = QComboBox()
+        frequency.addItems([
+            "Daily",
+            "Weekdays",
+            "Weekly"
+        ])
+
+        layout.addWidget(QLabel("Habit"))
+        layout.addWidget(title)
+
+        layout.addWidget(QLabel("Frequency"))
+        layout.addWidget(frequency)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = styled_button(
+            "Cancel",
+            "fa5s.times",
+            "secondary"
+        )
+
+        save = styled_button(
+            "Add habit",
+            "fa5s.plus",
+            "primary"
+        )
+
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+
+        layout.addLayout(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        if not title.text().strip():
+            return
+
+        add_habit(
             title.text().strip(),
             frequency.currentText()
         )
 
-    return None
+        self.show_habits()
 
+    def complete_habit(self, habit_id):
 
-def show_habits():
+        toggle_habit(habit_id)
+        self.show_habits()
 
-    clear_content()
+    # ========================================================
+    # SMART PLANNER
+    # ========================================================
 
-    heading = QLabel(
-        "Little habits 🌿"
-    )
+    def show_smart_plan(self):
 
-    heading.setObjectName(
-        "title"
-    )
+        self.set_active(self.smart_btn)
+        self.current_page = "smart"
 
-    content.addWidget(
-        heading
-    )
+        clear_layout(self.paper_layout)
 
-    add = QPushButton(
-        "＋ Add habit"
-    )
-
-    add.setObjectName(
-        "primary"
-    )
-
-    add.clicked.connect(
-        add_habit_popup
-    )
-
-    content.addWidget(add)
-
-    habits = get_habits()
-
-    if not habits:
-
-        content.addWidget(
-            QLabel(
-                "🌱 No habits yet."
-            )
+        self.page_header(
+            "LITTLE DAY AI",
+            "Plan my day",
+            "Give Little Day a goal and let it turn it into real tasks.",
+            "fa5s.magic"
         )
 
-    else:
+        card = QFrame()
+        card.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{LAVENDER};
+                border:1px solid {BORDER};
+                border-radius:18px;
+            }}
+            """
+        )
 
-        for habit_id, title, frequency, last_completed in habits:
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(10)
 
-            card = QFrame()
-            card.setObjectName(
-                "card"
+        label = QLabel(
+            "What are you trying to accomplish?"
+        )
+
+        label.setStyleSheet(
+            f"font-size:15px; font-weight:800;"
+        )
+
+        layout.addWidget(label)
+
+        self.smart_goal_input = QLineEdit()
+        self.smart_goal_input.setPlaceholderText(
+            "e.g. Learn the Transformer architecture"
+        )
+
+        layout.addWidget(self.smart_goal_input)
+
+        self.smart_deadline = QDateEdit()
+        self.smart_deadline.setCalendarPopup(True)
+        self.smart_deadline.setDate(
+            date.today() + timedelta(days=7)
+        )
+
+        deadline_label = QLabel("Deadline")
+        deadline_label.setStyleSheet(
+            f"font-size:11px; font-weight:750; color:{MUTED};"
+        )
+
+        layout.addWidget(deadline_label)
+        layout.addWidget(self.smart_deadline)
+
+        generate = styled_button(
+            "Create my plan",
+            "fa5s.magic",
+            "primary"
+        )
+
+        generate.clicked.connect(
+            self.generate_schedule_for_today
+        )
+
+        layout.addWidget(generate)
+
+        self.paper_layout.addWidget(card)
+
+        explanation = QLabel(
+            "Little Day uses AI to break your goal into manageable steps, "
+            "then schedules those steps into available time."
+        )
+
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet(
+            f"color:{MUTED}; font-size:12px;"
+        )
+
+        self.paper_layout.addWidget(explanation)
+
+        self.paper_layout.addStretch()
+
+    def generate_schedule_for_today(self):
+
+        goal = self.smart_goal_input.text().strip()
+
+        if not goal:
+            QMessageBox.warning(
+                self,
+                "Missing goal",
+                "Tell Little Day what you want to accomplish."
+            )
+            return
+
+        try:
+
+            QApplication.setOverrideCursor(
+                Qt.WaitCursor
             )
 
-            row = QHBoxLayout(card)
+            tasks = decompose_goal(goal)
 
-            label = QLabel(
-                f"🌿 {title}\n"
-                f"{frequency}"
+            deadline = (
+                self.smart_deadline
+                .date()
+                .toString("yyyy-MM-dd")
             )
 
-            row.addWidget(
-                label,
-                1
+            deadline_date = datetime.strptime(
+                deadline,
+                "%Y-%m-%d"
+            ).date()
+
+            scheduled = suggest_schedule(
+                tasks,
+                date.today(),
+                deadline_date
             )
 
-            check = QPushButton(
-                "✓ Done today"
+        except Exception as error:
+
+            QMessageBox.critical(
+                self,
+                "Planner error",
+                str(error)
             )
 
-            check.clicked.connect(
-                lambda checked=False,
-                       hid=habit_id:
+            return
+
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        for task in scheduled:
+
+            add_task(
+                title=task["title"],
+                description=f"Generated from goal: {goal}",
+                task_date=task["date"],
+                start_time=task["start"],
+                end_time=task["end"],
+                priority=task.get(
+                    "priority",
+                    "Medium"
+                ),
+                duration_minutes=task.get(
+                    "duration_minutes",
+                    60
+                )
+            )
+
+        QMessageBox.information(
+            self,
+            "Plan created",
+            f"I created {len(scheduled)} tasks for you."
+        )
+
+        self.show_today()
+
+    # ========================================================
+    # SETTINGS / COMMITMENTS
+    # ========================================================
+
+    def show_settings(self):
+
+        self.set_active(self.settings_btn)
+        self.current_page = "settings"
+
+        clear_layout(self.paper_layout)
+
+        self.page_header(
+            "YOUR LIFE",
+            "Settings",
+            "Tell Little Day about the things that already have a place.",
+            "fa5s.cog"
+        )
+
+        section = QLabel("Commitments")
+        section.setObjectName("sectionTitle")
+
+        self.paper_layout.addWidget(section)
+
+        add_btn = styled_button(
+            "Add commitment",
+            "fa5s.plus",
+            "primary"
+        )
+
+        add_btn.clicked.connect(
+            self.add_commitment_popup
+        )
+
+        self.paper_layout.addWidget(add_btn)
+
+        commitments = get_commitments()
+
+        if not commitments:
+
+            self.paper_layout.addWidget(
+                self.empty_state(
+                    "fa5s.calendar-check",
+                    "No commitments",
+                    "Add classes, appointments, family plans, or anything fixed."
+                )
+            )
+
+        else:
+
+            scroll = self.scroll_container()
+
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(2, 2, 2, 2)
+            layout.setSpacing(10)
+
+            for commitment in commitments:
+
                 (
-                    toggle_habit(hid),
-                    show_habits()
+                    commitment_id,
+                    title,
+                    commitment_date,
+                    start_time,
+                    end_time
+                ) = commitment
+
+                card = QFrame()
+                card.setStyleSheet(
+                    f"""
+                    QFrame {{
+                        background:{PEACH};
+                        border:1px solid {BORDER};
+                        border-radius:15px;
+                    }}
+                    """
                 )
-            )
 
-            row.addWidget(check)
+                row = QHBoxLayout(card)
+                row.setContentsMargins(
+                    15, 12, 15, 12
+                )
 
-            content.addWidget(
-                card
-            )
+                icon_label = make_icon_label(
+                    "fa5s.thumbtack",
+                    PEACH_DARK,
+                    18
+                )
 
-    content.addStretch()
+                row.addWidget(icon_label)
 
+                content = QVBoxLayout()
+                content.setSpacing(2)
 
-def add_habit_popup():
+                title_label = QLabel(title)
+                title_label.setStyleSheet(
+                    f"font-size:15px; font-weight:800;"
+                )
 
-    data = habit_dialog()
+                meta = QLabel(
+                    f"{commitment_date} · "
+                    f"{start_time} — {end_time}"
+                )
 
-    if data:
+                meta.setStyleSheet(
+                    f"font-size:11px; color:{MUTED};"
+                )
 
-        add_habit(*data)
+                content.addWidget(title_label)
+                content.addWidget(meta)
 
-        show_habits()
+                row.addLayout(content, 1)
 
+                delete = styled_button(
+                    "",
+                    "fa5s.trash-alt",
+                    "danger"
+                )
 
-# =========================================================
-# COMMITMENTS
-# =========================================================
+                delete.setFixedWidth(40)
 
-def commitment_dialog():
+                delete.clicked.connect(
+                    lambda checked=False,
+                    cid=commitment_id:
+                    self.delete_commitment_popup(cid)
+                )
 
-    dialog = QDialog(window)
+                row.addWidget(delete)
 
-    dialog.setWindowTitle(
-        "Add a commitment"
-    )
+                layout.addWidget(card)
 
-    dialog.resize(420, 300)
+            layout.addStretch()
 
-    layout = QVBoxLayout(dialog)
+            scroll.setWidget(container)
 
-    title = QLineEdit()
+            self.paper_layout.addWidget(scroll, 1)
 
-    title.setPlaceholderText(
-        "e.g. College lecture"
-    )
+    def add_commitment_popup(self):
 
-    layout.addWidget(
-        QLabel("What are you busy with?")
-    )
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add commitment")
+        dialog.setMinimumWidth(420)
 
-    layout.addWidget(title)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(12)
 
-    commitment_date = QDateEdit()
-
-    commitment_date.setCalendarPopup(
-        True
-    )
-
-    commitment_date.setDate(
-        date.today()
-    )
-
-    layout.addWidget(
-        QLabel("Date")
-    )
-
-    layout.addWidget(
-        commitment_date
-    )
-
-    start = QTimeEdit()
-
-    start.setDisplayFormat(
-        "HH:mm"
-    )
-
-    layout.addWidget(
-        QLabel("Starts")
-    )
-
-    layout.addWidget(start)
-
-    end = QTimeEdit()
-
-    end.setDisplayFormat(
-        "HH:mm"
-    )
-
-    layout.addWidget(
-        QLabel("Ends")
-    )
-
-    layout.addWidget(end)
-
-    save = QPushButton(
-        "📌 Add commitment"
-    )
-
-    save.setObjectName(
-        "primary"
-    )
-
-    layout.addWidget(save)
-
-    save.clicked.connect(
-        dialog.accept
-    )
-
-    if dialog.exec() and title.text().strip():
-
-        start_time = (
-            start.time().toString(
-                "HH:mm"
-            )
+        heading = QLabel("New commitment")
+        heading.setStyleSheet(
+            f"font-size:22px; font-weight:800;"
         )
 
-        end_time = (
-            end.time().toString(
-                "HH:mm"
-            )
+        layout.addWidget(heading)
+
+        title = QLineEdit()
+        title.setPlaceholderText(
+            "e.g. Database Systems lecture"
         )
 
-        return (
+        commitment_date = QDateEdit()
+        commitment_date.setCalendarPopup(True)
+        commitment_date.setDate(
+            date.today()
+        )
+
+        start = QTimeEdit()
+        start.setDisplayFormat("HH:mm")
+
+        end = QTimeEdit()
+        end.setDisplayFormat("HH:mm")
+
+        for label_text, widget in [
+            ("Title", title),
+            ("Date", commitment_date),
+            ("Starts", start),
+            ("Ends", end)
+        ]:
+
+            label = QLabel(label_text)
+            label.setStyleSheet(
+                f"font-size:11px; font-weight:750; color:{MUTED};"
+            )
+
+            layout.addWidget(label)
+            layout.addWidget(widget)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel = styled_button(
+            "Cancel",
+            "fa5s.times",
+            "secondary"
+        )
+
+        save = styled_button(
+            "Add commitment",
+            "fa5s.plus",
+            "primary"
+        )
+
+        cancel.clicked.connect(dialog.reject)
+        save.clicked.connect(dialog.accept)
+
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+
+        layout.addLayout(buttons)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        if not title.text().strip():
+            return
+
+        add_commitment(
             title.text().strip(),
-            commitment_date.date().toString(
-                "yyyy-MM-dd"
-            ),
-            start_time,
-            end_time
+            commitment_date.date().toString("yyyy-MM-dd"),
+            start.time().toString("HH:mm"),
+            end.time().toString("HH:mm")
         )
 
-    return None
+        self.show_settings()
 
+    def delete_commitment_popup(self, commitment_id):
 
-def add_commitment_popup():
-
-    data = commitment_dialog()
-
-    if data:
-
-        add_commitment(*data)
-
-        show_settings()
-
-
-def show_settings():
-
-    clear_content()
-
-    heading = QLabel(
-        "Little Day settings ⚙️"
-    )
-
-    heading.setObjectName(
-        "title"
-    )
-
-    content.addWidget(
-        heading
-    )
-
-    content.addWidget(
-        QLabel(
-            "Tell Little Day about the things "
-            "that already occupy your time."
-        )
-    )
-
-    commitment_button = QPushButton(
-        "＋ Add commitment"
-    )
-
-    commitment_button.setObjectName(
-        "primary"
-    )
-
-    commitment_button.clicked.connect(
-        add_commitment_popup
-    )
-
-    content.addWidget(
-        commitment_button
-    )
-
-    section = QLabel(
-        "YOUR COMMITMENTS"
-    )
-
-    section.setStyleSheet(
-        "font-weight: bold;"
-    )
-
-    content.addWidget(
-        section
-    )
-
-    commitments = get_commitments()
-
-    if not commitments:
-
-        content.addWidget(
-            QLabel(
-                "🌱 No commitments yet.\n"
-                "Add classes, meetings, gym sessions, "
-                "appointments, etc."
-            )
+        answer = QMessageBox.question(
+            self,
+            "Delete commitment",
+            "Remove this commitment?",
+            QMessageBox.Yes | QMessageBox.No
         )
 
-    else:
+        if answer == QMessageBox.Yes:
 
-        for (
-            commitment_id,
-            title,
-            commitment_date,
-            start,
-            end
-        ) in commitments:
-
-            card = QFrame()
-
-            card.setObjectName(
-                "card"
+            delete_commitment(
+                commitment_id
             )
 
-            row = QHBoxLayout(card)
+            self.show_settings()
 
-            label = QLabel(
-                f"📌 {title}\n"
-                f"{commitment_date}  •  "
-                f"{start}–{end}"
-            )
+    # ========================================================
+    # SHARED UI
+    # ========================================================
 
-            row.addWidget(
-                label,
-                1
-            )
+    def scroll_container(self):
 
-            delete = QPushButton(
-                "Delete"
-            )
-
-            delete.setObjectName(
-                "danger"
-            )
-
-            def remove_commitment(
-                checked=False,
-                cid=commitment_id
-            ):
-
-                delete_commitment(cid)
-
-                show_settings()
-
-            delete.clicked.connect(
-                remove_commitment
-            )
-
-            row.addWidget(delete)
-
-            content.addWidget(card)
-
-    content.addStretch()
-
-
-# =========================================================
-# SMART DAILY PLAN
-# =========================================================
-
-def show_smart_plan():
-
-    clear_content()
-
-    heading = QLabel(
-        "Plan my day 🧠"
-    )
-
-    heading.setObjectName(
-        "title"
-    )
-
-    content.addWidget(
-        heading
-    )
-
-    content.addWidget(
-        QLabel(
-            "Little Day will fit your unfinished "
-            "tasks around your existing commitments."
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
         )
-    )
-
-    tasks = get_tasks(
-        date.today().isoformat()
-    )
-
-    unfinished = [
-        task
-        for task in tasks
-        if not task[7]
-    ]
-
-    if not unfinished:
-
-        content.addWidget(
-            QLabel(
-                "✨ You're clear for today!\n"
-                "Add a task or work on a goal."
-            )
+        scroll.setFrameShape(
+            QFrame.NoFrame
         )
 
-    else:
+        return scroll
 
-        content.addWidget(
-            QLabel(
-                f"I found {len(unfinished)} "
-                "unfinished task(s):"
-            )
+    def empty_state(
+        self,
+        icon_name,
+        title,
+        subtitle
+    ):
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{CARD};
+                border:1px solid {BORDER};
+                border-radius:17px;
+            }}
+            """
         )
 
-        for i, task in enumerate(
-            unfinished
-        ):
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(
+            30, 35, 30, 35
+        )
+        layout.setSpacing(8)
 
-            content.addWidget(
-                task_card(
-                    task,
-                    i
-                )
-            )
-
-        plan_button = QPushButton(
-            "🧠 Generate a realistic schedule"
+        icon_label = make_icon_label(
+            icon_name,
+            GREEN,
+            30
         )
 
-        plan_button.setObjectName(
-            "smart"
+        layout.addWidget(
+            icon_label,
+            alignment=Qt.AlignCenter
         )
 
-        plan_button.clicked.connect(
-            lambda:
-            generate_schedule_for_today(
-                unfinished
-            )
+        title_label = QLabel(title)
+        title_label.setAlignment(
+            Qt.AlignCenter
         )
 
-        content.addWidget(
-            plan_button
+        title_label.setStyleSheet(
+            f"font-size:17px; font-weight:800;"
         )
 
-    content.addStretch()
+        layout.addWidget(title_label)
 
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setAlignment(
+            Qt.AlignCenter
+        )
+        subtitle_label.setWordWrap(True)
 
-def generate_schedule_for_today(tasks):
-
-    today_string = date.today().isoformat()
-
-    busy = []
-
-    # Existing commitments.
-    commitments = get_commitments(
-        today_string
-    )
-
-    for (
-        _cid,
-        _title,
-        _date,
-        start,
-        end
-    ) in commitments:
-
-        if start and end:
-            busy.append(
-                (start, end)
-            )
-
-    # Existing scheduled tasks are also busy.
-    for task in tasks:
-
-        start = task[4]
-        end = task[5]
-
-        if start and end:
-            busy.append(
-                (start, end)
-            )
-
-    # Temporarily remove each task's own
-    # current schedule, otherwise it would
-    # block itself.
-    busy_without_tasks = []
-
-    for (
-        _cid,
-        _title,
-        _date,
-        start,
-        end
-    ) in commitments:
-
-        if start and end:
-            busy_without_tasks.append(
-                (start, end)
-            )
-
-    # Build tasks for the scheduler.
-    scheduler_tasks = []
-
-    for task in tasks:
-
-        duration = task[8] or 60
-
-        scheduler_tasks.append({
-            "id": task[0],
-            "title": task[1],
-            "priority": task[6],
-            "duration_minutes": duration
-        })
-
-    scheduled = suggest_schedule(
-        scheduler_tasks,
-        date.today(),
-        date.today(),
-        {
-            today_string:
-            busy_without_tasks
-        }
-    )
-
-    if not scheduled:
-
-        QMessageBox.warning(
-            window,
-            "No free time",
-            (
-                "I couldn't find enough free time "
-                "between 09:00 and 18:00 today."
-            )
+        subtitle_label.setStyleSheet(
+            f"color:{MUTED}; font-size:12px;"
         )
 
-        return
+        layout.addWidget(subtitle_label)
 
-    # Show preview first.
-    lines = []
-
-    for item in scheduled:
-
-        lines.append(
-            f"{item['start']}–{item['end']}  "
-            f"{item['title']}"
-        )
-
-    answer = QMessageBox.question(
-        window,
-        "Suggested schedule 🧠",
-        (
-            "Here's what Little Day suggests:\n\n"
-            + "\n".join(lines)
-            + "\n\nApply this schedule?"
-        ),
-        QMessageBox.Yes |
-        QMessageBox.No
-    )
-
-    if answer != QMessageBox.Yes:
-        return
-
-    # Apply schedule to the actual tasks.
-    task_lookup = {
-        task["title"]: task
-        for task in scheduler_tasks
-    }
-
-    for item in scheduled:
-
-        task = task_lookup.get(
-            item["title"]
-        )
-
-        if task:
-
-            update_task_schedule(
-                task["id"],
-                item["date"],
-                item["start"],
-                item["end"]
-            )
-
-    QMessageBox.information(
-        window,
-        "Schedule updated ✨",
-        "Your tasks have been scheduled around your commitments."
-    )
-
-    show_today()
+        return frame
 
 
-# =========================================================
-# NAVIGATION
-# =========================================================
+# ============================================================
+# APP START
+# ============================================================
 
-today_button.clicked.connect(
-    show_today
-)
+if __name__ == "__main__":
 
-goals_button.clicked.connect(
-    show_goals
-)
+    create_database()
 
-calendar_button.clicked.connect(
-    show_calendar
-)
+    app = QApplication(sys.argv)
 
-habits_button.clicked.connect(
-    show_habits
-)
+    app.setApplicationName("Little Day")
 
-smart_button.clicked.connect(
-    show_smart_plan
-)
+    window = LittleDay()
+    window.show()
 
-settings_button.clicked.connect(
-    show_settings
-)
-
-
-# =========================================================
-# START
-# =========================================================
-
-show_today()
-
-main.addWidget(
-    sidebar
-)
-
-main.addWidget(
-    paper,
-    1
-)
-
-window.show()
-
-sys.exit(
-    app.exec()
-)
+    sys.exit(app.exec())

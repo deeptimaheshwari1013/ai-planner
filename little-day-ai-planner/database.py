@@ -1,7 +1,16 @@
+import os
 import sqlite3
+import sys
 from datetime import date
 
-DATABASE = "planner.db"
+
+# Keep Little Day's database in the same folder as the app.
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DATABASE = os.path.join(APP_DIR, "planner.db")
 
 
 def connect():

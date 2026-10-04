@@ -1,12 +1,25 @@
 import json
 import os
+import sys
 import time
 from datetime import date, timedelta
 
 from dotenv import load_dotenv
+
+
+# Find the directory containing the application/project.
+if getattr(sys, "frozen", False):
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Look for .env next to the application.
+ENV_PATH = os.path.join(APP_DIR, ".env")
+
+load_dotenv(ENV_PATH)
 from google import genai
 
-load_dotenv()
+
 
 MODEL = "gemini-3.8-flash"
 

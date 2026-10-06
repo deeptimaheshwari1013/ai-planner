@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+datas = []
+binaries = []
+hiddenimports = []
+tmp_ret = collect_all('qtawesome')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('google.genai')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=[],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -32,6 +41,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['/Users/vishwanathmaheshwary/AI-planner/little-day-ai-planner/little_day_icon.png'],
 )
 coll = COLLECT(
     exe,
@@ -45,6 +55,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='Little Day.app',
-    icon=None,
+    icon='/Users/vishwanathmaheshwary/AI-planner/little-day-ai-planner/little_day_icon.png',
     bundle_identifier=None,
 )
